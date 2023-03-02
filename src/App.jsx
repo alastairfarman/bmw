@@ -1,34 +1,38 @@
 import React, { useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useLoader } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+import { Environment, Float } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { useFrame } from '@react-three/fiber';
-import { ReinhardToneMapping, VideoTexture } from 'three';
-import { OrbitControls } from '@react-three/drei';
+import { useFrame, useThree } from '@react-three/fiber';
+import {  ReinhardToneMapping, VideoTexture } from 'three';
+
+import { EffectComposer, DepthOfField, Bloom, Noise, Vignette } from '@react-three/postprocessing';
+
+
+
+//camera 1
+
+const camera = new THREE.PerspectiveCamera(25, window.innerWidth / window.innerHeight, 1, 500);
+camera.position.set(2, -0.5, 30);
+camera.rotation.set(0.14, 0, 0);
+
 
 
 function App(props) {
 
   const [color, setColor] = useState('rgb(125,0,55)');
-  const [cameraIndex, setCameraIndex] = useState(0);
+  const [bokeh, setBokeh] = useState(0);
+  const [focusDistance, setFocusDistance] = useState(0.13);
+  const [focalLength, setFocalLength] = useState(0.1);
+// load floor texture
+
+const bumpTexture = useLoader(THREE.TextureLoader, "./bump.jpg");
+bumpTexture.minFilter = THREE.LinearFilter;
 
 
- // camera 1
-
-  const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 1, 300);
-  camera.position.set(2, -0.5, 30);
-  camera.rotation.set(0.1745, 0, 0);
-
-    // camera 2
-
-    const camera2 = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera2.position.set(0, 0, 50);
 
 
-  const bumpTexture = useLoader(THREE.TextureLoader, "./bump.jpg");
-
-  
+// Car
 
 
   function Car(props) {
@@ -47,6 +51,8 @@ function App(props) {
       }),
       Bmw_Badge: new THREE.MeshStandardMaterial({
         color: "black",
+        roughness: 0,
+        metalness: 1,
         side: THREE.DoubleSide,
       }),
       Bmw_Logo: new THREE.MeshStandardMaterial({
@@ -74,20 +80,26 @@ function App(props) {
       }),
       Clear_glass: new THREE.MeshPhysicalMaterial({
         color: "white",
-        opacity: 1,
-        transmission: 0.9,
-        roughness: 0,
+        transmission: 0.95,
+        roughness: 0.15,
         clearcoat: 1,
         clearcoatRoughness: 0,
         transparent: true,
         side: THREE.DoubleSide,
       }),
-      Dark_blue_paint: new THREE.MeshStandardMaterial({ color: "darkblue" }),
-      Red_glass: new THREE.MeshStandardMaterial({
-        color: "red",
-        opacity: 0.5,
+      Dark_blue_paint: new THREE.MeshStandardMaterial({
+        color: new THREE.Color(0x0033ff),
+        side: THREE.DoubleSide,
+      }),
+      Red_glass: new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(0xff0000),
+        roughness: 0,
         transparent: true,
         side: THREE.DoubleSide,
+        transmission: 0.8,
+        clearcoat: 1,
+        clearcoatRoughness: 0,
+        thickness: 2,
       }),
       Red_paint: new THREE.MeshStandardMaterial({
         color: "red",
@@ -102,8 +114,7 @@ function App(props) {
         color: new THREE.Color(0x777777),
         roughness: 0,
         transparent: true,
-        side: THREE.DoubleSide,
-        transmission: 0.7,
+        transmission: 1,
         clearcoat: 1,
         clearcoatRoughness: 0,
         thickness: 2,
@@ -120,6 +131,38 @@ function App(props) {
       }
     });
 
+    const { scene } = useThree();
+
+  
+
+    const setHeadlightIntensity = (intensity, intensity2) => {
+      scene.traverse((object) => {
+        if (
+          object.type === "PointLight" &&
+          object.userData.name === "headlight"
+        ) {
+          object.intensity = intensity;
+        }
+
+        if (
+          object.type === "SpotLight" &&
+          object.userData.name === "headlight"
+        ) {
+          object.intensity = intensity2;
+        }
+      });
+
+    };
+
+
+  const handlePointerOver = (event) => {
+    setHeadlightIntensity(0.7, 400);
+  };
+
+  const handlePointerOut = (event) => {
+    setHeadlightIntensity(0, 0);
+  };
+
 
   
     return (
@@ -127,6 +170,8 @@ function App(props) {
         object={gltf.scene}
         rotation={[0, Math.PI / 4, 0]}
         position={[-2, 0, 0]}
+        onPointerOver={handlePointerOver}
+      onPointerOut={handlePointerOut}
       />
     );
   }
@@ -149,88 +194,71 @@ videoTexture.magFilter = THREE.LinearFilter;
 videoTexture.format = THREE.RGBAFormat;
 
 
-  const vertexShader = `
-  varying vec2 vUv;
-
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-  const fragmentShader = `
-  uniform sampler2D videoTexture;
-  uniform float opacity;
-  varying vec2 vUv;
-
-  void main() {
-    vec4 color = texture2D(videoTexture, vUv);
-    float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-    float alpha = smoothstep(0.0, 0.5, luminance);
-    gl_FragColor = vec4(color.rgb, color.a * alpha * opacity);
-  }
-`;
-
 // rain droplets on screen
 
-function Rain() {
-    const particleCount = 60;
-    const particles = useRef([]);
-  
-    useFrame(({ clock }) => {
-      const time = clock.getElapsedTime();
-      for (let i = 0; i < particleCount; i++) {
-        const particle = particles.current[i];
-        if (particle && particle.userData.active) {
-          particle.material.opacity = Math.max(
-            0,
-            1 - (time - particle.userData.startTime) / 1.5
-          );
-          if (particle.material.opacity === 0) {
-            particle.userData.active = false;
-            particle.visible = false;
-          }
-        } else if (particle && Math.random() < 0.01) {
-          particle.userData.active = true;
-          particle.visible = true;
-          particle.userData.startTime = time;
-          particle.material.opacity = 1;
+function Rain({ activeCamera }) {
+  const particleCount = 60;
+  const particles = useRef([]);
+
+  useFrame(({ clock }) => {
+    const time = clock.getElapsedTime();
+    for (let i = 0; i < particleCount; i++) {
+      const particle = particles.current[i];
+      if (particle && particle.userData.active) {
+        particle.material.opacity = Math.max(
+          0,
+          1 - (time - particle.userData.startTime) / 1.5
+        );
+        if (particle.material.opacity === 0) {
+          particle.userData.active = false;
+          particle.visible = false;
         }
+      } else if (particle && Math.random() < 0.01) {
+        particle.userData.active = true;
+        particle.visible = true;
+        particle.userData.startTime = time;
+        particle.material.opacity = 1;
       }
-    });
-  
-    return (
-      <group>
-        {[...Array(particleCount)].map((_, i) => (
-          <mesh
-            key={i}
-            ref={(ref) => (particles.current[i] = ref)}
-            position={[
-              (Math.random() - 0.5) * 20,
-              (Math.random() - 0.5) * 20,
-              (Math.random() - 0.5) * 20,
-            ]}
-            scale={[0.02, 0.02, 1]}
-            userData={{ active: false }}
-            visible={false}
-          >
-            <circleGeometry args={[1, 16]} />
-            <meshBasicMaterial
-              color={0xffffff}
-              transparent
-              opacity={0}
-              depthTest={false}
-              blending={THREE.AdditiveBlending}
-            />
-          </mesh>
-        ))}
-      </group>
-    );
+    }
+  });
+
+  let position;
+  if (activeCamera === 0) {
+    position = [0, 20, -60];
+  } else if (activeCamera === 1) {
+    position = [0, 20, -30];
   }
-  
 
+  return (
+    <group position={position}>
+      {[...Array(particleCount)].map((_, i) => (
+        <mesh
+          key={i}
+          ref={(ref) => (particles.current[i] = ref)}
+          position={[
+            (Math.random() - 0.5) * 20,
+            (Math.random() - 0.5) * 20,
+            (Math.random() - 0.5) * 20,
+          ]}
+          scale={[0.02, 0.02, 1]}
+          userData={{ active: false }}
+          visible={false}
+        >
+          <circleGeometry args={[1, 16]} />
+          <meshBasicMaterial
+            color={0xffffff}
+            transparent
+            opacity={0}
+            depthTest={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
 
-  // color change for car
+// color change for car
 
   const onColorChange = (color) => {
 setColor(color)
@@ -239,66 +267,128 @@ setColor(color)
 
 
   const onCameraChange = (index) => {
-    setCameraIndex(index);
-  };
+    switch(index) {
+      case 0:
+        camera.position.set(2, -0.5, 30);
+        camera.rotation.set(0.14, 0, 0);
+        camera.fov = 25
+        setBokeh(0)
+          setFocusDistance(1)
+          setFocalLength(1)
+        break;
+      case 1:
+        camera.position.set(-12, 0.7, -13);
+        camera.rotation.set(0, -Math.PI/1.3, 0);
+        camera.fov = 10
+        setBokeh(10)
+        setFocusDistance(0.2)
+        setFocalLength(0.2)
+        break;
+        case 2:
+          camera.position.set(20, 0.5, 10);
+          camera.rotation.set(0, Math.PI/2.6, 0);
+          camera.fov = 6.5
+          setBokeh(20)
+          setFocusDistance(0.035)
+          setFocalLength(0.03)
 
-  return (<>
-        <Canvas shadows={true} dpr={[1, 1.5]} style={{ width: 800, height: 600 }} camera={cameraIndex === 0 ? camera : camera2} onCreated={state => {state.gl.toneMapping = ReinhardToneMapping; state.gl.toneMappingExposure = 0.3; state.gl.shadowMap.enabled = true; state.gl.shadowMap.type = THREE.PCFShadowMap}}>
-          
-          <Car color={color} />
+          break;
+      default:
+        break;
+    }
+    camera.updateProjectionMatrix()
+  };
+  
+
+  return (
+  <>
+    <Canvas shadows={true} dpr={[1, 1.5]} style={{ width: 1000, height: 600 }} camera={camera} onCreated={state => {state.gl.toneMapping = ReinhardToneMapping; state.gl.toneMappingExposure = 0.15; state.gl.shadowMap.enabled = true; state.gl.shadowMap.type = THREE.PCFShadowMap}}>
+
+          <Car color={color} smaa />
           
           <mesh rotation={[-1.5708,0,0]} position={[0,-1.01,-50]} receiveShadow>
             <planeGeometry attach="geometry" args={[200, 200, 100, 100]} />
-            <meshStandardMaterial attach="material" color="grey" roughness={0.3} metalness={0} bumpMap={bumpTexture} bumpScale={0.2} />
+            <meshStandardMaterial attach="material" color="grey" roughness={0.6} metalness={0} bumpMap={bumpTexture} bumpScale={0.05} />
           </mesh>
 
-          <mesh position={[0, 20, -60]}>
-            <planeGeometry args={[120, 90]} />
-            <meshBasicMaterial map={videoTexture} transparent blending={THREE.AdditiveBlending} opacity={0.5}  />
+          <mesh rotation={[-1.5708,0,0]} position={[0,-1,10]} receiveShadow>
+            <planeGeometry attach="geometry" args={[40, 40, 100, 100]} />
+            <meshStandardMaterial attach="material" color="grey" roughness={0.6} metalness={0} bumpMap={bumpTexture} bumpScale={0.05} />
           </mesh>
 
-          <Environment files="./img/sky.hdr" background>
-            {(texture) => {
-            texture.mapping = THREE.EquirectangularReflectionMapping;
-            texture.encoding = THREE.sRGBEncoding;
-            texture.rotation = Math.PI / 2; // Rotate 90 degrees to the right
-            return <primitive object={texture} />;}}
-          </Environment>
+          <Float
+  speed={0.5} // Animation speed, defaults to 1
+  rotationIntensity={0.1} // XYZ rotation intensity, defaults to 1
+  floatIntensity={1} // Up/down float intensity, works like a multiplier with floatingRange,defaults to 1
+>
+          <mesh position={[40,4,40]}>
+            <sphereGeometry attach="geometry" args={[2, 60, 30]} />
+            <meshPhysicalMaterial attach="material" color="white" roughness={0} metalness={1} bumpMap={bumpTexture} bumpScale={0.2} />
+          </mesh>
+          </Float>
+
+          <Environment files="./img/sky.hdr" background onCreated={state => {state.texture.mapping = THREE.EquirectangularReflectionMapping; state.texture.encoding = THREE.sRGBEncoding; state.texture.rotation = Math.PI / 2 * -1;}}/>
 
           <Rain/>
 
-             {/* <pointLight
-            intensity={2}
-            position={[1, -0.1, 4.2]}
+          <pointLight
+            intensity={0}
+            position={[3, 0.9, 3.5]}
             color={0xff5500}
             castShadow
             userData={{ name: "headlight", side: "left" }}
           />
           <pointLight
-            intensity={2}
-            position={[1.8, -0.1, 3.8]}
-            color={0xff5500}
+            intensity={0}
+            position={[1.5, 0.9, 4.5]}
+            color={0xff5544}
             castShadow
             userData={{ name: "headlight", side: "right" }}
-          /> */}
+          />
 
           <spotLight
-          position={[50, 25, 28]}
+          position={[3.8,-0.2,6.1]}
+          angle={Math.PI / 64}
+          penumbra={1}
+          intensity={0}
+          color={0xffddaa}
+          castShadow
+          userData={{name: "headlight", side: "left"}}
+          />
+          <spotLight
+          position={[1.7,-0.2,7.5]}
+          angle={Math.PI / 64}
+          penumbra={1}
+          intensity={0}
+          color={0xffddaa}
+          castShadow
+          userData={{name: "headlight", side: "right"}}
+          />
+
+          <spotLight
+          position={[60, 5, 50]}
           angle={Math.PI / 8}
           penumbra={1.5}
-          intensity={2}
+          intensity={6}
+          color={0xffcfaa}
           castShadow
           shadow-mapSize-height={2048}
           shadow-mapSize-width={2048}
           userData={{ name: "key" }}/>
-    
-          {/* <OrbitControls/> */}
-
-      </Canvas>
-      
-      <Selector onColorChange={onColorChange} onCameraChange={onCameraChange} />
-</>
-  );
+<EffectComposer smaa>
+        
+      <DepthOfField focusDistance={focusDistance} focalLength={focalLength} bokehScale={bokeh} height={480} />
+      <Bloom luminanceThreshold={0.8} luminanceSmoothing={1} height={512} opacity={4} />
+        <Noise opacity={0.05} />
+        <Vignette eskil={true} offset={0.5} darkness={0.2} />
+      </EffectComposer>
+      <mesh position={[0, 20, -60]}>
+            <planeGeometry args={[120, 90]} />
+            <meshBasicMaterial map={videoTexture} transparent opacity={10} blending={THREE.AdditiveBlending} depthWrite={false} receiveShadow={false} castShadow={false} />
+          </mesh>
+    </Canvas>
+    <Selector onColorChange={onColorChange} onCameraChange={onCameraChange} />
+</>);
 }
 
 function Selector(props) {
@@ -307,11 +397,12 @@ function Selector(props) {
   };
 
   const handleCameraChange = (event) => {
-    props.onCameraChange(event.target.value);
+    props.onCameraChange(parseInt(event.target.value));
   };
+  
 
   return (
-    <div id='UI'>
+    <div id='ui'>
     <div>
       <label>
         <input type="radio" name="color" value="rgb(172,175,178)" onChange={handleColorChange} />
@@ -334,6 +425,10 @@ function Selector(props) {
      <label>
        <input type="radio" name="camera" value="1" onChange={handleCameraChange} />
        Camera 2
+     </label>
+     <label>
+     <input type="radio" name="camera" value="2" onChange={handleCameraChange} />
+       Camera 3
      </label>
    </div>
    </div>
