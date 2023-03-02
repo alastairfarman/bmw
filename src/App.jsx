@@ -322,8 +322,8 @@ setColor(color)
   floatIntensity={1} // Up/down float intensity, works like a multiplier with floatingRange,defaults to 1
 >
           <mesh position={[40,4,40]}>
-            <sphereGeometry attach="geometry" args={[2, 60, 30]} />
-            <meshPhysicalMaterial attach="material" color="white" roughness={0} metalness={1} bumpMap={bumpTexture} bumpScale={0.2} />
+            <sphereGeometry attach="geometry" args={[0.5, 60, 30]} />
+            <meshPhysicalMaterial attach="material" color="white" roughness={0} metalness={1} bumpMap={bumpTexture} bumpScale={0.1} />
           </mesh>
           </Float>
 
